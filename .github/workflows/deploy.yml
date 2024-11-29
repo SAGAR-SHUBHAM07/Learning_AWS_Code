@@ -1,0 +1,117 @@
+name: Deploy Terraform
+on:
+  push:
+    branches:
+      - main
+  # workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: 
+      - self-hosted
+      - label-1
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Terraform
+        run: |
+      #     sudo apt-get update -y
+      #     sudo apt-get install -y wget unzip
+      #     wget https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_linux_amd64.zip
+      #     unzip terraform_1.9.8_linux_amd64.zip
+      #     sudo mv terraform /usr/local/bin/
+      #     terraform --version
+          
+      # - name : Install AWS CLI
+      #   run: |
+      #     wget "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+      #     unzip awscli-exe-linux-x86_64.zip
+      #     sudo ./aws/install
+      #     aws --version
+      #     aws sts get-caller-identity
+      #     # aws configure list
+      #     # aws configure set region us-east-1
+      #     aws secretsmanager get-secret-value --secret-id sam_project_dev_credentials --query 'SecretString' --output text
+      #     # aws secretsmanager get-secret-value --secret-id sam_project_dev_credentials
+
+      - name : Configure S3 Bucket & DynamDb
+        run: |
+          # Check for Ongoing Terraform Operations
+            ps -aux | grep terraform
+          # Create S3 Bucket
+          # Variables
+            # BUCKET_NAME="ARGO-DEV"
+            # AWS_REGION="us-east-1"
+          # Create S3 Bucket
+            # aws s3api create-bucket \
+            #     --bucket $BUCKET_NAME \
+            #     --region $AWS_REGION \
+            #     --create-bucket-configuration LocationConstraint=$AWS_REGION
+            
+            # echo "Bucket $BUCKET_NAME created successfully."          
+          # aws s3api create-bucket --bucket sam-terraform-bucket --region us-east-1
+          # Enable versioning on the S3 bucket
+          # aws s3api put-bucket-versioning --bucket sam-terraform-bucket --versioning-configuration Status=Enabled
+          # setup DynaModb Table
+            # aws dynamodb create-table \
+            #   --table-name terraform-lock-table \
+            #   --attribute-definitions AttributeName=LockID,AttributeType=S \
+            #   --key-schema AttributeName=LockID,KeyType=HASH \
+            #   --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
+      
+      - name: Initialize & Run Terraform Init
+        run: terraform init
+        
+      - name: Fetch AWS Credentials from Secrets Manager
+        id: get-secrets
+        run: |
+          # Fetch AWS credentials from Secrets Manager
+          echo "Fetching AWS credentials from AWS Secrets Manager"
+          AWS_ACCESS_KEY_ID=$(aws secretsmanager get-secret-value --secret-id sam_project_dev_credentials --query 'SecretString' --output text | jq -r .AWS_ACCESS_KEY_ID)
+          AWS_SECRET_ACCESS_KEY=$(aws secretsmanager get-secret-value --secret-id sam_project_dev_credentials --query 'SecretString' --output text | jq -r .AWS_SECRET_ACCESS_KEY)
+          # Export AWS credentials as environment variables
+          export AWS_ACCESS_KEY_ID
+          export AWS_SECRET_ACCESS_KEY
+          echo "AWS credentials fetched and environment variables set."
+
+      - name: Upload Lock File to S3
+      #   env:
+      #     AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      #     AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          LOCK_FILE=".terraform.lock.hcl"
+          S3_BUCKET_NAME="sam-terraform"
+          S3_FOLDER_NAME="developer"
+          if [ -f "$LOCK_FILE" ]; then
+            echo "Uploading $LOCK_FILE to S3 bucket $S3_BUCKET_NAME..."
+            aws s3 cp "$LOCK_FILE" "s3://$S3_BUCKET_NAME/$S3_FOLDER_NAME/"
+          else
+            echo "$LOCK_FILE not found. Ensure Terraform has been initialized."
+            exit 1
+          fi
+          
+      - name: Validate & Plan Terraform
+        run: |
+          terraform validate
+          terraform plan
+          echo "Terraform vaildate and plan sccessfullly"
+          
+      - name: Apply Terraform
+        run: terraform apply -auto-approve
+      #   env:
+      #     AWS_ACCESS_KEY_ID: ${{ steps.get-secrets.outputs.AWS_ACCESS_KEY_ID }}
+      #     AWS_SECRET_ACCESS_KEY: ${{ steps.get-secrets.outputs.AWS_SECRET_ACCESS_KEY }}
+      #     # AWS_SESSION_TOKEN: ${{ steps.get-secrets.outputs.AWS_SESSION_TOKEN }}
+        
+      # - name: Plan Destroy 
+      #   run: terraform plan -destroy
+      - name: Resourse Destroy
+        run: |
+          terraform destroy -auto-approve
+          echo "successfully Destroy Tf template"
+      #     terraform show
+      #     terraform state list
+      #     # terraform state rm vpc-01b939a2af52501c2
+      
+          
+        
